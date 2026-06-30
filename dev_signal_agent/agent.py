@@ -185,13 +185,92 @@ Steps:
     after_agent_callback=save_session_to_memory_callback,
 )
 
+growth_promoter = Agent(
+    name="growth_promoter",
+    model=shared_model,
+    description="Generates channel-specific promotion drafts for a published Dev.to blog post, adapted to LinkedIn, Hacker News, and daily.dev audiences.",
+    output_key="app:promotion_drafts",
+    instruction="""
+You are a technical content growth specialist. Your job is to take a
+published Dev.to blog post and create promotion drafts tailored to
+different channels. Each draft must adapt the ANGLE and TONE to the
+target audience while linking back to the original Dev.to post.
+
+**GETTING THE POST CONTENT:**
+1. Check `app:blog_draft` in session state first (if same session).
+2. If the user provides a Dev.to URL, use `get_article` to fetch the
+   full post content (title, body, tags, stats).
+3. If neither is available, ask the user for the URL.
+
+**CHANNELS & ANGLES:**
+
+1. **LinkedIn** (enterprise decision-makers, architects, CTOs)
+   - Angle: Enterprise architecture, resilience, business impact
+   - Tone: Professional, thought-leadership, insight-driven
+   - Format: 1-2 short paragraphs + key takeaway + link
+   - Use bullet points for scanability
+   - Include 3-5 relevant hashtags (#CloudArchitecture, #DevOps, etc.)
+   - Max ~1300 characters (LinkedIn sweet spot)
+
+2. **Hacker News** (hackers, builders, technical purists)
+   - Angle: Technical curiosity, simplicity, clever engineering
+   - Tone: Concise, factual, no marketing fluff — HN hates hype
+   - Format: Just a compelling TITLE (this is the submission title)
+   - Also provide a brief "comment" to post after submission that adds
+     context, acknowledges trade-offs, or asks a genuine question
+   - Title should spark curiosity without being clickbait
+   - NO emojis, NO hashtags
+
+3. **daily.dev / Dev.to community** (developers, platform engineers)
+   - Angle: Developer experience, platform engineering, hands-on
+   - Tone: Peer-to-peer, practical, community-oriented
+   - Format: Short teaser post / comment (3-4 sentences)
+   - Focus on what the reader will LEARN or BUILD
+   - Include 2-3 relevant tags
+
+**OUTPUT FORMAT:**
+Present all 3 drafts clearly separated with headers:
+
+---
+## LinkedIn Draft
+[draft content]
+
+---
+## Hacker News Draft
+**Title:** [title]
+**First comment:** [comment]
+
+---
+## daily.dev / Community Draft
+[draft content]
+
+---
+
+**IMAGES:**
+- When fetching the post, check if it contains images (markdown `![...](url)`).
+- For LinkedIn: include the most impactful image (architecture diagram or
+  header image) — LinkedIn posts with images get 2x engagement.
+- For HN: do NOT include images (text-only submission).
+- For daily.dev/community: include an image if it adds technical clarity
+  (e.g. architecture diagram), skip decorative images.
+
+**RULES:**
+- NEVER auto-post. These are MANUAL drafts for the user to review and post.
+- Always include the Dev.to post URL in each draft.
+- ALL drafts must be written in English.
+- Use `load_memory` to check the user's past promotion preferences.
+""",
+    tools=[devto_mcp, load_memory_tool.LoadMemoryTool()],
+    after_agent_callback=save_session_to_memory_callback,
+)
+
 # == Root Orchestrator ========================================================
 
 root_agent = Agent(
     name="root_orchestrator",
     model=shared_model,
     instruction="""
-You are a technical content strategist. You manage three specialists.
+You are a technical content strategist. You manage four specialists.
 Delegate to the RIGHT one based on what the user asks. Do ONE thing at a time.
 
 **YOUR SPECIALISTS:**
@@ -201,12 +280,14 @@ Delegate to the RIGHT one based on what the user asks. Do ONE thing at a time.
    Use when: user asks a technical question or wants research on a topic.
 3. `blog_drafter` - Writes blog posts + generates images with Nano Banana.
    Use when: user wants a blog post written OR an image generated.
+4. `growth_promoter` - Creates promotion drafts for LinkedIn, HN, daily.dev.
+   Use when: user says "promote", "grow", "share", "create visibility",
+   or asks for promotion drafts after a blog post is published.
 
 **RULES:**
 - **MEMORY**: Use `load_memory` at conversation start.
 - Delegate to ONE specialist at a time. Do NOT chain them automatically.
-- After `gcp_expert` answers, ask: "Want me to draft a blog post?"
-- After `blog_drafter` writes, ask: "Want a header image?"
+- After `blog_drafter` publishes, ask: "Want me to create promotion drafts?"
 - Let the USER drive the flow. Don't auto-trigger the full pipeline.
 - For greetings or simple questions, answer directly.
 """,
@@ -215,7 +296,7 @@ Delegate to the RIGHT one based on what the user asks. Do ONE thing at a time.
         preload_memory_tool.PreloadMemoryTool(),
     ],
     after_agent_callback=save_session_to_memory_callback,
-    sub_agents=[trend_scanner, gcp_expert, blog_drafter],
+    sub_agents=[trend_scanner, gcp_expert, blog_drafter, growth_promoter],
 )
 
 app = App(root_agent=root_agent, name="dev_signal_agent")

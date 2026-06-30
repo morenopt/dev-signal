@@ -81,6 +81,52 @@ async def get_trending_articles(tag: str = "", page: int = 1, per_page: int = 10
 
 
 @mcp.tool()
+async def get_article(article_url_or_id: str) -> str:
+    """
+    Fetch the full content of a Dev.to article by URL or numeric ID.
+    Returns title, body_markdown, tags, URL, and engagement stats.
+    Use this to get the full post content for promotion or review.
+
+    Args:
+        article_url_or_id: Either a Dev.to URL (e.g. "https://dev.to/user/my-post-abc123")
+                           or a numeric article ID (e.g. "1234567").
+    """
+    # Extract article ID from URL if needed
+    article_id = article_url_or_id.strip()
+    if article_id.startswith("http"):
+        # Dev.to API supports fetching by path: /api/articles/{username}/{slug}
+        # But easier to use the "by path" endpoint
+        path = article_id.replace("https://dev.to/", "").replace("http://dev.to/", "")
+        endpoint = f"{DEVTO_BASE}/articles/{path}"
+    else:
+        endpoint = f"{DEVTO_BASE}/articles/{article_id}"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(endpoint, headers=_headers())
+        if resp.status_code != 200:
+            return f"ERROR: Could not fetch article (status {resp.status_code}): {resp.text[:200]}"
+        data = resp.json()
+
+    title = data.get("title", "Untitled")
+    url = data.get("url", "N/A")
+    tags = ", ".join(data.get("tags") or data.get("tag_list") or [])
+    reactions = data.get("positive_reactions_count", 0)
+    comments = data.get("comments_count", 0)
+    published = data.get("published_at", "N/A")
+    body = data.get("body_markdown", data.get("body_html", "No content available."))
+
+    return (
+        f"# {title}\n\n"
+        f"**URL:** {url}\n"
+        f"**Tags:** {tags}\n"
+        f"**Reactions:** {reactions} | **Comments:** {comments}\n"
+        f"**Published:** {published}\n\n"
+        f"---\n\n"
+        f"{body}\n"
+    )
+
+
+@mcp.tool()
 async def get_article_comments(article_id: int) -> str:
     """
     Retrieve comments for a specific Dev.to article by its ID.

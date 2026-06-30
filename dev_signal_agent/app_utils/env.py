@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 def _fetch_secrets(project_id: str):
     """Fetch secrets from Secret Manager and return them as a dictionary."""
-    secrets_to_fetch = ["DEVTO_API_KEY", "DK_API_KEY"]
+    secrets_to_fetch = ["DEVTO_API_KEY", "DK_API_KEY", "DAILYDEV_API_TOKEN"]
     fetched_secrets = {}
 
     # First, check local environment (for local development via .env)
@@ -25,7 +25,7 @@ def _fetch_secrets(project_id: str):
                     response = client.access_secret_version(request={"name": name})
                     # DO NOT set os.environ[secret_id] here. 
                     # Keep it in this dictionary only.
-                    fetched_secrets[secret_id] = response.payload.data.decode("UTF-8")
+                    fetched_secrets[secret_id] = response.payload.data.decode("UTF-8").strip()
                 except Exception as e:
                     print(f"Warning: Could not fetch {secret_id} from Secret Manager: {e}")
 

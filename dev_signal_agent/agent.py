@@ -7,6 +7,7 @@ from dev_signal_agent.app_utils.env import init_environment
 from dev_signal_agent.tools.mcp_config import (
     get_hackernews_mcp_toolset,
     get_devto_mcp_toolset,
+    get_dailydev_mcp_toolset,
     get_dk_mcp_toolset,
     get_nano_banana_mcp_toolset,
 )
@@ -69,8 +70,13 @@ async def save_trends_and_memory_callback(*args, **kwargs) -> None:
 
 
 # == MCP Toolsets (singletons) ================================================
+# daily.dev aggregates 400+ sources (HN, Dev.to, Medium, Reddit, etc.)
+dailydev_mcp = get_dailydev_mcp_toolset(api_token=SECRETS.get("DAILYDEV_API_TOKEN", ""))
+
+# HN and Dev.to kept available for direct access if needed
 hn_mcp = get_hackernews_mcp_toolset()
 devto_mcp = get_devto_mcp_toolset(api_key=SECRETS.get("DEVTO_API_KEY", ""))
+
 dk_mcp = get_dk_mcp_toolset(api_key=SECRETS.get("DK_API_KEY", ""))
 nano_mcp = get_nano_banana_mcp_toolset()
 
@@ -86,25 +92,29 @@ search_agent = Agent(
 trend_scanner = Agent(
     name="trend_scanner",
     model=shared_model,
-    description="Finds trending questions and high-engagement topics on Hacker News and Dev.to.",
+    description="Finds trending questions and high-engagement topics across 400+ tech sources via daily.dev.",
     output_key="app:trend_findings",
     instruction="""
 You are a technical trend research specialist. Identify high-engagement
 questions and discussions from the last 3 weeks.
 
-Sources:
-- **Hacker News**: cutting-edge technical discussions and startup trends.
-- **Dev.to**: practical tutorials and community-driven content.
+Source:
+- **daily.dev**: aggregates 400+ sources including Hacker News, Dev.to,
+  Medium, Reddit, InfoQ, GitHub blogs, and many more.
 
 Steps:
 1. **MEMORY CHECK**: Use `load_memory` for the user's past interests.
-2. Search HN and Dev.to MCP tools for relevant stories and articles.
-3. Filter for posts from the last 21 days.
-4. Rank by engagement (points/reactions + comments).
-5. For each item provide: direct link, concise summary, engagement stats.
-6. **CAPTURE PREFERENCES**: Acknowledge user preferences explicitly.
+2. Use `get_trending_posts` for general trending content.
+   Use `get_most_discussed` for hot discussions (set period=21 for 3 weeks).
+   Use `search_posts` when the user asks about a specific topic.
+   Use `get_tag_feed` to deep-dive into a technology.
+   Use `discover_tags` to find the right tag names.
+3. Rank by engagement (upvotes + comments).
+4. For each item provide: direct link, source name, concise summary,
+   engagement stats, and tags.
+5. **CAPTURE PREFERENCES**: Acknowledge user preferences explicitly.
 """,
-    tools=[hn_mcp, devto_mcp, load_memory_tool.LoadMemoryTool()],
+    tools=[dailydev_mcp, load_memory_tool.LoadMemoryTool()],
     after_agent_callback=save_trends_and_memory_callback,
 )
 
@@ -120,16 +130,17 @@ official docs with community insights.
 
 For EVERY question, use ALL tools:
 1. **Official Docs**: DeveloperKnowledge MCP (`search_documents`).
-2. **Community**: HN and Dev.to MCP tools for real-world discussions.
+2. **Community**: daily.dev MCP tools for real-world discussions across
+   400+ sources (HN, Dev.to, Medium, Reddit, etc.).
 3. **Web**: `search_agent` for recent blogs and tutorials.
 
 Synthesize:
 - Start with the official answer from GCP docs.
-- Add "Community Insights" from HN, Dev.to, Web Search.
+- Add "Community Insights" from daily.dev, Web Search.
 - Cite sources with direct links (URLs) at the end.
 - **CAPTURE PREFERENCES**: Acknowledge user preferences explicitly.
 """,
-    tools=[dk_mcp, AgentTool(search_agent), hn_mcp, devto_mcp],
+    tools=[dk_mcp, AgentTool(search_agent), dailydev_mcp],
     after_agent_callback=save_research_and_memory_callback,
 )
 
@@ -184,7 +195,7 @@ You are a technical content strategist. You manage three specialists.
 Delegate to the RIGHT one based on what the user asks. Do ONE thing at a time.
 
 **YOUR SPECIALISTS:**
-1. `trend_scanner` - Finds trending topics on HN and Dev.to.
+1. `trend_scanner` - Finds trending topics across 400+ sources via daily.dev.
    Use when: user asks "what's trending", "find discussions about X"
 2. `gcp_expert` - Technical answers from GCP docs + community.
    Use when: user asks a technical question or wants research on a topic.

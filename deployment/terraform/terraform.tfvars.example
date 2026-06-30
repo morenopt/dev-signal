@@ -4,6 +4,7 @@ service_name     = "dev-signal"
 ai_assets_bucket = "dev-signal-gde"
 
 secrets = {
-  DEVTO_API_KEY = "9v64jZmkgvmXt7n7SvFC7FRb"
-  DK_API_KEY    = "AIzaSyBLF8Ghc0mSzatSlUV4oPSTxyBcVXaw57o"
+  DEVTO_API_KEY      = "your-devto-api-key-here"
+  DK_API_KEY         = "your-dk-api-key-here"
+  DAILYDEV_API_TOKEN = "dda_your-daily-dev-token-here"
 }

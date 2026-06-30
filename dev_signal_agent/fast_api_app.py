@@ -45,9 +45,8 @@ def _get_memory_bank_uri():
 
 SESSION_URI, MEMORY_URI = _get_memory_bank_uri()
 
-# Use in-memory sessions on Cloud Run (stateless).
-# Long-term memory is persisted via the Memory Bank (MEMORY_URI).
-SESSION_URI = None
+# Sessions and Memory are both persisted via Agent Engine.
+# This ensures sessions survive Cloud Run scale-to-zero events.
 
 # --- Initialize FastAPI with ADK ---
 app: FastAPI = get_fast_api_app(

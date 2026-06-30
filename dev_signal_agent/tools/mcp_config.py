@@ -68,6 +68,32 @@ def get_devto_mcp_toolset(api_key: str = ""):
         )
     )
 
+def get_dailydev_mcp_toolset(api_token: str = ""):
+    """
+    Connects to the daily.dev MCP server.
+    Aggregates 400+ tech content sources (HN, Dev.to, Medium, Reddit, etc.).
+    Requires a daily.dev Plus subscription and Personal Access Token (PAT).
+    Generate at: https://app.daily.dev/settings/api
+    """
+    path = os.path.join("dev_signal_agent", "tools", "dailydev_mcp", "main.py")
+    command, args = _get_script_command(path)
+
+    env = {**os.environ, "LANG": "en_US.UTF-8"}
+    if api_token:
+        env["DAILYDEV_API_TOKEN"] = api_token
+
+    return McpToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command=command,
+                args=args,
+                env=env
+            ),
+            timeout=120.0
+        )
+    )
+
+
 def get_dk_mcp_toolset(api_key: str = ""):
     """
     Connects to Developer Knowledge (Google Cloud Docs).

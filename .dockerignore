@@ -1,0 +1,32 @@
+# Virtual environments
+.venv/
+__pycache__/
+*.pyc
+
+# Local config & secrets
+.env
+.env.*
+
+# Test files
+test_*.py
+run_test.py
+*_test.json
+*_out.txt
+test_output.txt
+
+# Agent skills (development only)
+.agent/
+
+# Deployment configs
+deployment/
+*.tfvars
+*.tfstate*
+.terraform/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/

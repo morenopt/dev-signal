@@ -1,0 +1,37 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets and Local Config
+.env
+.env.*
+session.db
+**/session.db
+blog.md
+**/blog.md
+evalaution_blog.md
+**/evalaution_blog.md
+evaluation_blog.md
+**/evaluation_blog.md
+security_blog.md
+**/security_blog.md
+skills_blog.md
+**/skills_blog.md
+
+# Local ADK data
+.adk/
+**/.adk/
+
+# Terraform secrets and state
+**/.terraform/
+*.tfvars
+*.tfvars.json
+terraform.tfstate*
+*.tfplan

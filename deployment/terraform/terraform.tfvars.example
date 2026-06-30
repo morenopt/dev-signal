@@ -1,0 +1,9 @@
+project_id       = "optimum-web-487816-v4"
+region           = "europe-west1"
+service_name     = "dev-signal"
+ai_assets_bucket = "dev-signal-gde"
+
+secrets = {
+  DEVTO_API_KEY = "9v64jZmkgvmXt7n7SvFC7FRb"
+  DK_API_KEY    = "AIzaSyBLF8Ghc0mSzatSlUV4oPSTxyBcVXaw57o"
+}

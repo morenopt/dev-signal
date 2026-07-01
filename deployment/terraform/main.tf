@@ -18,7 +18,7 @@ resource "google_project_service" "services" {
 resource "google_artifact_registry_repository" "repo" {
   project       = var.project_id
   location      = var.region
-  repository_id = "dev-signal-repo"
+  repository_id = "dev-signal"
   description   = "Docker repository for Dev Signal Agent"
   format        = "DOCKER"
   depends_on    = [google_project_service.services]
@@ -92,7 +92,7 @@ resource "google_cloud_run_v2_service" "default" {
     }
 
     containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder until first build
+      image = "europe-west1-docker.pkg.dev/optimum-web-487816-v4/dev-signal/dev-signal:latest"
 
       env {
         name  = "GOOGLE_CLOUD_PROJECT"
@@ -116,20 +116,56 @@ resource "google_cloud_run_v2_service" "default" {
       }
       env {
         name  = "AGENT_ENGINE_LOCATION"
-        value = "europe-west1"
+                value = "europe-west1"
       }
       env {
         name  = "TELEGRAM_OWNER_CHAT_ID"
         value = var.telegram_owner_chat_id
+      }      # Secret environment variables — injected from Secret Manager
+      env {
+        name  = "DEPLOY_TIMESTAMP"
+        value = "managed-by-terraform"
+      }
+      env {
+        name = "DEVTO_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = "DEVTO_API_KEY"
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "DK_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = "DK_API_KEY"
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "DAILYDEV_API_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = "DAILYDEV_API_TOKEN"
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "TELEGRAM_BOT_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = "TELEGRAM_BOT_TOKEN"
+            version = "latest"
+          }
+        }
       }
 
-      # NOTE: Secret injection as environment variables has been removed 
-      # to align with Direct API access best practices.
-
       resources {
-        limits = {
-          cpu    = "1"
-          memory = "2Gi"
+        limits = {          cpu    = "1"
+          memory = "1Gi"
         }
         startup_cpu_boost = true
       }
@@ -161,7 +197,6 @@ resource "google_cloud_scheduler_job" "daily_trends" {
   description = "Triggers daily trend scan every morning at 8:00 CET"
   schedule    = "0 8 * * *"
   time_zone   = "Europe/Lisbon"
-
   http_target {
     http_method = "POST"
     uri         = "${google_cloud_run_v2_service.default.uri}/telegram/cron/trends"
@@ -174,6 +209,12 @@ resource "google_cloud_scheduler_job" "daily_trends" {
       service_account_email = google_service_account.agent_sa.email
       audience              = google_cloud_run_v2_service.default.uri
     }
+  }
+
+  # No retries — the endpoint is idempotent but we avoid duplicate messages.
+  # If it fails, we'll see it in Cloud Logging and can trigger manually.
+  retry_config {
+    retry_count = 0
   }
 
   depends_on = [google_project_service.services]

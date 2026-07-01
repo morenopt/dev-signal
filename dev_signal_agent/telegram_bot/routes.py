@@ -14,6 +14,7 @@ Architecture note:
 import os
 import asyncio
 import logging
+import time
 from datetime import date
 from urllib.parse import urlparse
 from fastapi import APIRouter, Request, Response
@@ -217,6 +218,15 @@ async def _run_agent_for_telegram(user_message: str, session_id: str = "telegram
         return f"Agent error: {type(e).__name__}: {str(e)[:200]}"
 
 
+# Max age for webhook updates (seconds). Messages older than this are
+# stale retries from when Cloud Run was down — discard them.
+_MAX_UPDATE_AGE_SECONDS = 60
+
+# Per-action lock: prevents the same action from running twice concurrently.
+# This handles Telegram sending duplicate webhook calls during slow responses.
+_action_locks: dict[str, asyncio.Lock] = {}
+
+
 @router.post("/webhook")
 async def telegram_webhook(request: Request) -> Response:
     """Receive Telegram webhook updates."""
@@ -231,6 +241,16 @@ async def telegram_webhook(request: Request) -> Response:
 
     data = await request.json()
     update = Update.de_json(data, bot_app.bot)
+
+    # Stale message detection: reject updates older than _MAX_UPDATE_AGE_SECONDS.
+    # When Cloud Run was down, Telegram queues retries. When it comes back up,
+    # all arrive at once. We only want fresh messages.
+    msg = update.message or update.callback_query and update.callback_query.message
+    if msg and msg.date:
+        message_age = time.time() - msg.date.timestamp()
+        if message_age > _MAX_UPDATE_AGE_SECONDS:
+            logger.info("Dropping stale update_id=%s (age=%.0fs)", data.get("update_id"), message_age)
+            return Response(status_code=200)
 
     # Dedup: skip if we already processed this update (Telegram retry)
     update_id = data.get("update_id")
@@ -309,49 +329,114 @@ async def _process_pending_action(bot, pending: dict) -> None:
             pass
 
 
+# Dedup for cron: track which date+topic combos have already been sent.
+# Prevents duplicate trend messages when Cloud Scheduler retries or
+# when multiple requests arrive simultaneously during deploys.
+_cron_sent_today: set[str] = set()
+
+# Lock: ensures only ONE cron execution runs at a time per container.
+# If 3 requests arrive simultaneously, only the first executes;
+# the others wait and then hit the dedup check → return immediately.
+_cron_lock = asyncio.Lock()
+
+
 @router.post("/cron/trends")
 async def cron_daily_trends(request: Request) -> Response:
     """Triggered by Cloud Scheduler every morning.
     Runs trend_scanner and sends results to the owner via Telegram.
 
     Accepts optional JSON body:
-      {"topic": "gcp"}  — filters trends by topic (e.g. gcp, ai, devops)
+      {"topic": "gcp"}        — filters trends by topic (e.g. gcp, ai, devops)
+      {"force": true}         — bypass dedup and re-send even if already sent today
+      {"topic": "gke", "force": true}  — both combined
+
+    Idempotency guarantees (when force=false):
+      1. asyncio.Lock prevents concurrent execution within same container
+      2. Date+topic dedup prevents re-sending after lock is released
+      3. Terraform configures Cloud Scheduler with retry_count=0
     """
     bot = _get_bot()
     if not bot or not OWNER_CHAT_ID:
         return Response(status_code=503, content="Bot or owner not configured")
 
-    # Parse optional topic from request body
+    # Parse optional topic and force flag from request body
     topic = ""
+    force = False
     try:
         body = await request.json()
-        topic = body.get("topic", "")    except Exception:
+        topic = body.get("topic", "")
+        force = body.get("force", False)
+    except Exception:
         pass  # Empty body or non-JSON is fine
 
-    try:
-        topic_clause = f" in {topic}" if topic else ""
-        # Use a daily session ID so each day starts fresh (no stale context)
-        daily_session = f"telegram_daily_trends_{date.today().isoformat()}"
-        response = await _run_agent_for_telegram(
-            f"what's trending{topic_clause} in the last 7 days? Show top 5 by engagement.",
-            session_id=daily_session,
+    # Serialize execution: only one cron runs at a time
+    async with _cron_lock:
+        # Dedup: only send once per day+topic combo (within same container lifetime)
+        # Skip dedup if force=true (manual/intentional re-trigger)
+        dedup_key = f"{date.today().isoformat()}_{topic}"
+        if not force and dedup_key in _cron_sent_today:
+            logger.info("Cron dedup: already sent trends for key=%s", dedup_key)
+            return Response(status_code=200, content="Already sent today")
+
+        # Mark as sent BEFORE executing (optimistic lock)
+        # If execution fails, we remove the key so retries can work
+        _cron_sent_today.add(dedup_key)
+
+        # Clean old entries (keep only today's)
+        today_prefix = date.today().isoformat()
+        _cron_sent_today.difference_update(
+            {k for k in _cron_sent_today if not k.startswith(today_prefix)}
         )
 
-        formatted = format_trends_message(response)
-        num_trends = formatted.count("- **")
-        keyboard = build_trends_keyboard(num_trends) if num_trends > 0 else None
+    # Retry with timeout: if agent doesn't respond within CRON_TIMEOUT_SECONDS,
+    # retry up to CRON_MAX_RETRIES times before giving up.
+    CRON_TIMEOUT_SECONDS = 120  # 2 minutes per attempt
+    CRON_MAX_RETRIES = 2
 
-        topic_label = f" in **{topic}**" if topic else ""
-        header = f"Good morning! Here are today's top trends{topic_label}:\n\n"
-        await _safe_send(
-            bot, OWNER_CHAT_ID, header + formatted,
-            reply_markup=keyboard, session_id=daily_session,
-        )
-        return Response(status_code=200, content="Trends sent")
+    topic_clause = f" in {topic}" if topic else ""
+    daily_session = f"telegram_daily_trends_{date.today().isoformat()}"
 
-    except Exception as e:
-        logger.error(f"Cron trends error: {e}")
-        return Response(status_code=500, content=str(e))
+    last_error = None
+    for attempt in range(CRON_MAX_RETRIES + 1):
+        try:
+            response = await asyncio.wait_for(
+                _run_agent_for_telegram(
+                    f"what's trending{topic_clause} in the last 7 days? Show top 5 by engagement.",
+                    session_id=daily_session,
+                ),
+                timeout=CRON_TIMEOUT_SECONDS,
+            )
+
+            # Check if agent returned an error (don't send error messages to user)
+            if response.startswith("Agent error:"):
+                last_error = response
+                logger.warning("Cron attempt %d/%d failed: %s", attempt + 1, CRON_MAX_RETRIES + 1, response)
+                continue
+
+            formatted = format_trends_message(response)
+            num_trends = formatted.count("- **")
+            keyboard = build_trends_keyboard(num_trends) if num_trends > 0 else None
+            topic_label = f" in **{topic}**" if topic else ""
+            header = f"Good morning! Here are today's top trends{topic_label}:\n\n"
+            await _safe_send(
+                bot, OWNER_CHAT_ID, header + formatted,
+                reply_markup=keyboard, session_id=daily_session,
+            )
+            return Response(status_code=200, content="Trends sent")
+
+        except asyncio.TimeoutError:
+            last_error = f"Timeout after {CRON_TIMEOUT_SECONDS}s (attempt {attempt + 1})"
+            logger.warning("Cron attempt %d/%d timed out", attempt + 1, CRON_MAX_RETRIES + 1)
+            continue
+        except Exception as e:
+            last_error = str(e)
+            logger.warning("Cron attempt %d/%d error: %s", attempt + 1, CRON_MAX_RETRIES + 1, e)
+            continue
+
+    # All retries exhausted — rollback dedup so next scheduled run can try again
+    _cron_sent_today.discard(dedup_key)
+    logger.error(f"Cron trends failed after {CRON_MAX_RETRIES + 1} attempts: {last_error}")
+    return Response(status_code=500, content=f"Failed after retries: {last_error}")
 
 
 def _split_message(text: str, max_len: int = 4000) -> list[str]:

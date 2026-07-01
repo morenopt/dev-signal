@@ -14,6 +14,7 @@ Architecture note:
 import os
 import asyncio
 import logging
+from datetime import date
 from urllib.parse import urlparse
 from fastapi import APIRouter, Request, Response
 from telegram import Update, Bot
@@ -312,25 +313,39 @@ async def _process_pending_action(bot, pending: dict) -> None:
 async def cron_daily_trends(request: Request) -> Response:
     """Triggered by Cloud Scheduler every morning.
     Runs trend_scanner and sends results to the owner via Telegram.
+
+    Accepts optional JSON body:
+      {"topic": "gcp"}  — filters trends by topic (e.g. gcp, ai, devops)
     """
     bot = _get_bot()
     if not bot or not OWNER_CHAT_ID:
         return Response(status_code=503, content="Bot or owner not configured")
 
+    # Parse optional topic from request body
+    topic = ""
     try:
+        body = await request.json()
+        topic = body.get("topic", "")    except Exception:
+        pass  # Empty body or non-JSON is fine
+
+    try:
+        topic_clause = f" in {topic}" if topic else ""
+        # Use a daily session ID so each day starts fresh (no stale context)
+        daily_session = f"telegram_daily_trends_{date.today().isoformat()}"
         response = await _run_agent_for_telegram(
-            "what's trending in the last 7 days? Show top 5 by engagement.",
-            session_id="telegram_daily_trends",
+            f"what's trending{topic_clause} in the last 7 days? Show top 5 by engagement.",
+            session_id=daily_session,
         )
 
         formatted = format_trends_message(response)
         num_trends = formatted.count("- **")
         keyboard = build_trends_keyboard(num_trends) if num_trends > 0 else None
 
-        header = "Good morning! Here are today's top trends:\n\n"
+        topic_label = f" in **{topic}**" if topic else ""
+        header = f"Good morning! Here are today's top trends{topic_label}:\n\n"
         await _safe_send(
             bot, OWNER_CHAT_ID, header + formatted,
-            reply_markup=keyboard, session_id="telegram_daily_trends",
+            reply_markup=keyboard, session_id=daily_session,
         )
         return Response(status_code=200, content="Trends sent")
 

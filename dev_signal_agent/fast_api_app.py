@@ -31,10 +31,9 @@ USE_IN_MEMORY = os.environ.get("USE_IN_MEMORY_SESSION", "").lower() in ("true", 
 # --- MEMORY BANK CONNECTION ---
 def _get_memory_bank_uri():
     if USE_IN_MEMORY: return None, None
-    # NOTE: Reasoning Engines (Agent Engines) are only available in us-central1
-    # Even if the Cloud Run service runs in europe-west1, memory must point to us-central1
-    memory_location = os.environ.get("AGENT_ENGINE_LOCATION", "us-central1")
-      # Re-init vertexai for the Agent Engine API call (requires us-central1)
+    # Agent Engine is now in europe-west1 (same region as Cloud Run)
+    # This reduces latency for session/memory operations.
+    memory_location = os.environ.get("AGENT_ENGINE_LOCATION", "europe-west1")
     import vertexai as _vtx
     _vtx.init(project=PROJECT_ID, location=memory_location)
     
@@ -43,8 +42,7 @@ def _get_memory_bank_uri():
     ae = existing[0] if existing else agent_engines.create(display_name=name)
     uri = f"agentengine://{ae.resource_name}"
     print(f"DEBUG: Connecting to Memory Bank: {uri} (display_name={name}, location={memory_location})")
-    
-    # Keep vertexai pointed at us-central1 (Agent Engine location).
+    # Keep vertexai pointed at europe-west1 (Agent Engine location).
     # The Gemini model location is specified per-agent via MODEL_LOC in agent.py,
     # so global vertexai location only matters for Agent Engine (sessions/memory).
     

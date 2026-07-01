@@ -1,191 +1,222 @@
-# Dev Signal - Production-Ready AI Agent
+# Dev Signal — AI-Powered Blog Creation Pipeline
 
-Welcome to **Dev Signal**, an intelligent monitoring agent designed to filter noise and create value. This project demonstrates how to build, deploy, and train a sophisticated multi-agent system using the Google Agent Development Kit (ADK), Google Cloud Run, and Vertex AI memory bank.
+An intelligent multi-agent system that discovers tech trends, drafts blog posts, publishes to Dev.to, and generates promotion content — all orchestrated via Telegram and a web UI.
 
-## 🚀 What is Dev Signal?
+## 🚀 What It Does
 
-Dev Signal is a multi-agent system that operates in a continuous loop to monitor technical trends and generate high-quality content. Its workflow includes:
+Dev Signal automates the full content creation pipeline:
 
-1.  **Discovery (Trend Scanner):** Scouts Hacker News and Dev.to for high-engagement technical questions and trending topics (e.g., "AI agents on Cloud Run").
-2.  **Grounding (GCP Expert):** Researches answers using official Google Cloud documentation (Developer Knowledge MCP) and broader web searches to ensure accuracy and capture community sentiment.
-3.  **Creation (Blog Drafter):** Drafts professional technical blog posts based on the research.
-4.  **Multimodal Generation:** Generates custom infographic-style header images for posts using the "Nano Banana" local image generation tool (Gemini 3 Pro Image).
-5.  **Long-Term Memory:** Uses Vertex AI memory bank to remember user preferences (e.g., "I prefer rap-style blogs") across different sessions.
+1. **Discovery** — Scans 400+ tech sources via daily.dev (HN, Dev.to, Medium, Reddit, InfoQ, GitHub…) for trending topics
+2. **Research** — Synthesizes official GCP documentation with community insights
+3. **Creation** — Drafts professional blog posts with AI-generated images
+4. **Publishing** — Publishes directly to Dev.to (as draft or live)
+5. **Promotion** — Generates channel-specific drafts for LinkedIn, Hacker News, and daily.dev
+6. **Alerts** — Daily trend alerts via Telegram + on-demand interaction
 
 ## 🏗️ Architecture
 
-The system is built on a modular multi-agent architecture:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Cloud Run (europe-west1)                   │
+├─────────────────────────────────────────────────────────────┤
+│  FastAPI App                                                 │
+│  ├── ADK Web UI (/dev-ui)                                    │
+│  └── Telegram Bot (/telegram/webhook, /telegram/cron/trends) │
+├─────────────────────────────────────────────────────────────┤
+│  ADK Runner + Agent Engine (europe-west1)                    │
+│  ├── VertexAiSessionService (persistent sessions)            │
+│  └── VertexAiMemoryBankService (cross-session memory)        │
+├─────────────────────────────────────────────────────────────┤
+│  Root Orchestrator                                           │
+│  ├── trend_scanner   → daily.dev MCP (400+ sources)          │
+│  ├── gcp_expert      → DeveloperKnowledge MCP + Google Search│
+│  ├── blog_drafter    → Dev.to MCP + Nano Banana (images)     │
+│  └── growth_promoter → Dev.to MCP (fetch + promote)          │
+└─────────────────────────────────────────────────────────────┘
+```
 
-*   **Root Orchestrator:** The strategist that manages the specialist agents and handles memory retrieval/persistence.
-*   **Specialist Agents:**
-    *   `trend_scanner`: Finds trending questions using Hacker News and Dev.to MCP tools.
-    *   `gcp_expert`: Provides grounded technical answers by synthesizing official documentation with community insights gathered via web search.
-    *   `blog_drafter`: Synthesizes findings into blog posts and generates visuals.
-*   **Tools (MCP):**
-    *   **Hacker News MCP:** Connects to Hacker News (Algolia API) for discovery — no auth required.
-    *   **Dev.to MCP:** Custom local FastMCP server wrapping the Forem API for developer community content.
-    *   **Developer Knowledge MCP:** Connects to Google Cloud documentation for grounding.
-    *   **Nano Banana MCP:** A custom local tool for image generation using Gemini 3 Pro Image.
+### Key Components
+
+| Component | Description |
+|-----------|-------------|
+| **Root Orchestrator** | Routes user requests to the right specialist agent |
+| **trend_scanner** | Finds trending topics from daily.dev (filters to last 21 days) |
+| **gcp_expert** | Technical answers from GCP docs + community |
+| **blog_drafter** | Writes posts, generates images, publishes to Dev.to |
+| **growth_promoter** | Creates LinkedIn/HN/community promotion drafts |
+
+### MCP Tools
+
+| Tool | Source | Auth |
+|------|--------|------|
+| **daily.dev MCP** | 400+ aggregated sources | PAT token (Plus subscription) |
+| **Dev.to MCP** | Forem API | API key |
+| **Hacker News MCP** | Algolia API | None |
+| **DeveloperKnowledge MCP** | Google Cloud docs | API key |
+| **Nano Banana MCP** | Gemini image generation | GCS bucket |
+
+### Integrations
+
+| Channel | Method |
+|---------|--------|
+| **Telegram** | Webhook bot — `/trends`, `/promote <url>`, free text chat |
+| **ADK Web UI** | Browser-based agent chat |
+| **Cloud Scheduler** | Daily 08:00 CET trend alerts to Telegram |
+| **Dev.to** | Direct publish via API |
 
 ## 📋 Prerequisites
 
-Ensure you have the following installed:
+- **Python 3.12+**
+- **[uv](https://github.com/astral-sh/uv)** — Fast Python package manager
+- **Google Cloud SDK** — Authenticated (`gcloud auth application-default login`)
+- **Node.js 20+** — Required for Hacker News MCP tool
+- **Terraform** — For infrastructure provisioning
 
-*   **Python 3.12+**
-*   **[uv](https://github.com/astral-sh/uv):** Fast Python package manager.
-*   **Google Cloud SDK (gcloud):** Installed and authenticated.
-*   **Terraform:** For infrastructure as code.
-*   **Node.js & npm:** Required for the Hacker News MCP tool.
+### API Keys Required
 
-**Google Cloud Requirements:**
-*   A Google Cloud Project with billing enabled.
-*   **APIs Enabled:** Vertex AI, Cloud Run, Secret Manager, Artifact Registry.
+| Secret | Source |
+|--------|--------|
+| `DEVTO_API_KEY` | [dev.to/settings/extensions](https://dev.to/settings/extensions) |
+| `DK_API_KEY` | Google Cloud Developer Knowledge |
+| `DAILYDEV_API_TOKEN` | [app.daily.dev/settings/api](https://app.daily.dev/settings/api) (Plus required) |
+| `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
 
-**API Keys:**
-*   **Dev.to API Key:** Free from [dev.to/settings/extensions](https://dev.to/settings/extensions).
-*   **Developer Knowledge API Key:** For Google Cloud docs search.
+## 🛠️ Setup
 
-## 🛠️ Installation & Setup
+### 1. Install Dependencies
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd dev-signal
-    ```
+```bash
+git clone <repo-url>
+cd dev-signal
+uv sync
+```
 
-2.  **Install dependencies:**
-    We use `uv` for fast dependency management.
-    ```bash
-    uv sync
-    ```
+### 2. Configure Environment
 
-3.  **Configure Environment Variables:**
-    Create a `.env` file in the project root:
-    ```bash
-    touch .env
-    ```
-    Add the following configuration (replace with your actual values):    ```ini
-    # Google Cloud Configuration
-    GOOGLE_CLOUD_PROJECT=your-project-id
-    GOOGLE_CLOUD_LOCATION=global
-    GOOGLE_CLOUD_REGION=us-central1
-    GOOGLE_GENAI_USE_VERTEXAI=True
-    AI_ASSETS_BUCKET=your-bucket-name
+Create a `.env` file:
 
-    # Dev.to API Key (free: https://dev.to/settings/extensions)
-    DEVTO_API_KEY=your_devto_api_key
+```ini
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_LOCATION=global
+GOOGLE_CLOUD_REGION=europe-west1
+GOOGLE_GENAI_USE_VERTEXAI=True
+AI_ASSETS_BUCKET=your-bucket-name
+AGENT_ENGINE_LOCATION=europe-west1
 
-    # Developer Knowledge API Key
-    DK_API_KEY=your_api_key
-    ```
+DEVTO_API_KEY=your_key
+DK_API_KEY=your_key
+DAILYDEV_API_TOKEN=your_token
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_OWNER_CHAT_ID=your_chat_id
+```
 
-## 💻 Local Testing
+### 3. Run Locally
 
-You can test the full agent loop locally, including the connection to the cloud-based Vertex AI Memory Bank.
+```bash
+uv run uvicorn dev_signal_agent.fast_api_app:app --host 0.0.0.0 --port 8080
+```
 
-1.  **Authenticate with Google Cloud:**
-    ```bash
-    gcloud auth application-default login
-    ```
+Then open `http://localhost:8080` for the ADK Web UI.
 
-2.  **Run the local test script:**
-    ```bash
-    uv run test_local.py
-    ```
+## ☁️ Deployment
 
-**Test Scenario:**
-1.  **Teach:** Tell the agent a preference (e.g., "Write all blogs as a 90s rap song").
-2.  **Reset:** Type `new` to start a fresh session (clears local history).
-3.  **Verify:** Ask for a new blog post. The agent should recall your preference from the cloud memory bank.
+### Infrastructure (Terraform)
 
-## ☁️ Deployment (Production)
+```bash
+cd deployment/terraform
+terraform init
+terraform plan -out=plan.tfplan
+terraform apply plan.tfplan
+```
 
-We use **Terraform** for infrastructure and **Cloud Run** for hosting.
+Provisions: Cloud Run, Secret Manager, IAM, Artifact Registry, Cloud Scheduler.
 
-### 1. Provision Infrastructure
-Initialize and apply the Terraform configuration to set up Cloud Run, Secret Manager, and permissions.
+### Build & Deploy
 
-1.  **Initialize Terraform:**
-    ```bash
-    cd deployment/terraform
-    terraform init
-    ```
+```bash
+# Build image
+gcloud builds submit \
+  --tag europe-west1-docker.pkg.dev/PROJECT_ID/dev-signal/dev-signal:latest \
+  --region=europe-west1
 
-2.  **Create Variables:**
-    Create a `terraform.tfvars` file and add your configuration (project ID, region, bucket, and secrets).
+# Deploy
+gcloud run deploy dev-signal \
+  --image=europe-west1-docker.pkg.dev/PROJECT_ID/dev-signal/dev-signal:latest \
+  --region=europe-west1 \
+  --platform=managed
+```
 
-3.  **Plan and Apply:**
-    ```bash
-    terraform plan -out=plan.tfplan
-    terraform apply plan.tfplan
-    ```
+Or use the Makefile:
 
-### 2. Build & Deploy
-Use the provided `Makefile` to build the Docker container and deploy it to Cloud Run via Google Cloud Build.
+```bash
+make docker-deploy
+```
 
-1.  **Return to project root:**
-    ```bash
-    cd ../..
-    ```
+### Telegram Webhook Setup
 
-2.  **Deploy:**
-    ```bash
-    make docker-deploy
-    ```
-    *This command builds the image, stores it in Artifact Registry, and updates the Cloud Run service.*
+After deployment, set the webhook:
 
-### 3. Accessing the Agent
-Production services are private by default. Access them securely via IAM and the Cloud Run proxy.
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<SERVICE_URL>/telegram/webhook&secret_token=dev-signal-webhook-7x9k2m"
+```
 
-1.  **Grant Permission:**
-    ```bash
-    gcloud run services add-iam-policy-binding dev-signal \
-      --member="user:$(gcloud config get-value account)" \
-      --role="roles/run.invoker" \
-      --region=us-central1 \
-      --project=$(gcloud config get-value project)
-    ```
+## 🤖 Telegram Commands
 
-2.  **Launch Proxy:**
-    ```bash
-    gcloud run services proxy dev-signal \
-      --region us-central1 \
-      --project $(gcloud config get-value project)
-    ```
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message with available commands |
+| `/trends [topic]` | Scan trending topics (optionally filtered) |
+| `/promote <url>` | Generate promotion drafts for a Dev.to post |
+| Free text | Chat directly with the agent |
 
-3.  **Chat:** Visit `http://localhost:8080` to interact with your production agent.
-
-## 📊 Monitoring & Tracing
-Once deployed, you can monitor your agent's reasoning traces in the Google Cloud Console:
-
-1.  Navigate to **Trace Explorer**.
-2.  Filter for the `dev-signal` service.
-3.  View the "visual waterfall" of agent thoughts, tool calls, and LLM responses.
+After trends are shown, inline buttons let you:
+- **Write #N** — Draft a blog post about trend N
+- **Mix trends** — Combine multiple trends into one post
 
 ## 📂 Project Structure
 
 ```
 dev-signal/
 ├── dev_signal_agent/
-│   ├── __init__.py
-│   ├── agent.py           # The brain: Agent logic & orchestration
-│   ├── fast_api_app.py    # The body: Application server & memory connection
-│   ├── app_utils/         # The nervous system: Env Config
-│   │   └── env.py
-│   └── tools/             # The hands: External capabilities
-│       ├── __init__.py
-│       ├── mcp_config.py  # Tool configuration (HN, Dev.to, Docs)
-│       ├── devto_mcp/     # Custom Dev.to MCP server
-│       │   ├── __init__.py
-│       │   └── main.py
-│       └── nano_banana_mcp/# Custom local image generation tool
+│   ├── agent.py              # Multi-agent orchestration (root + 4 specialists)
+│   ├── fast_api_app.py       # FastAPI server + ADK Web UI + Agent Engine init
+│   ├── app_utils/
+│   │   └── env.py            # Secret Manager + environment discovery
+│   ├── telegram_bot/
+│   │   ├── bot.py            # Telegram handlers (/start, /trends, /promote)
+│   │   └── routes.py         # Webhook + cron endpoints, background processing
+│   └── tools/
+│       ├── mcp_config.py     # MCP toolset factory functions
+│       ├── dailydev_mcp/     # daily.dev API (trending, discussed, search, tags)
+│       ├── devto_mcp/        # Dev.to API (publish, get articles, search)
+│       ├── hackernews_mcp/   # Hacker News Algolia API
+│       └── nano_banana_mcp/  # Gemini image generation + GCS storage
 ├── deployment/
-│   └── terraform/         # Infrastructure as Code
-├── .env                   # Local secrets (API keys)
-├── .gitignore             # Git ignore patterns
-├── Makefile               # Shortcuts for building/deploying
-├── Dockerfile             # Container definition
-├── pyproject.toml         # Dependencies
-├── uv.lock                # Locked dependencies
-└── test_local.py          # Local test runner
+│   └── terraform/            # Cloud Run, IAM, Secrets, Scheduler
+├── Dockerfile                # Python 3.12 + Node.js 20 (for HN MCP)
+├── Makefile                  # Build shortcuts
+├── pyproject.toml            # Dependencies (uv)
+└── uv.lock                   # Locked dependency versions
 ```
+
+## 🔧 Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Direct ADK Runner** (not HTTP self-calls) | Avoids latency + cold start issues for Telegram |
+| **asyncio.create_task()** for agent calls | Returns 200 to Telegram immediately, prevents retries |
+| **update_id dedup** | Safety net against Telegram webhook retries |
+| **VertexAiSessionService without custom IDs** | Agent Engine generates numeric IDs; we cache per logical name |
+| **cpu-boost + scale-to-zero** | Fast cold starts (~8-10s) without paying for idle instances |
+| **Date filtering in daily.dev MCP** | Prevents old viral posts from appearing as "recent trends" |
+| **Memory Bank** | Cross-session preference persistence (style, topics, past posts) |
+
+## 📊 Monitoring
+
+- **Cloud Run Logs**: `gcloud run services logs read dev-signal --region=europe-west1`
+- **Trace Explorer**: View agent reasoning traces in GCP Console
+- **Telegram**: Errors are sent directly to the owner chat
+
+## 📝 License
+
+Private project.

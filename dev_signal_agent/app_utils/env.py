@@ -38,9 +38,8 @@ def init_environment():
         _, project_id = google.auth.default()
     except Exception:
         project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-    
     model_location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
-    service_location = os.getenv("GOOGLE_CLOUD_REGION", "us-central1")
+    service_location = os.getenv("GOOGLE_CLOUD_REGION", "europe-west1")
     
     secrets = {}
     if project_id:

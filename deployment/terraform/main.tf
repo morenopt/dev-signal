@@ -116,7 +116,7 @@ resource "google_cloud_run_v2_service" "default" {
       }
       env {
         name  = "AGENT_ENGINE_LOCATION"
-        value = "us-central1"
+        value = "europe-west1"
       }
       env {
         name  = "TELEGRAM_OWNER_CHAT_ID"
@@ -168,7 +168,7 @@ resource "google_cloud_scheduler_job" "daily_trends" {
     headers = {
       "Content-Type" = "application/json"
     }
-    body = base64encode("{\"trigger\": \"scheduled\"}")
+    body = base64encode("{\"topic\": \"gcp\"}")
 
     oidc_token {
       service_account_email = google_service_account.agent_sa.email

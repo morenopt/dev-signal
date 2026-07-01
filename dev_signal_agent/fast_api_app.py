@@ -15,6 +15,13 @@ logger = cloud_logging.Client().logger(__name__)
 DEVTO_API_KEY = SECRETS.get("DEVTO_API_KEY")
 DK_API_KEY = SECRETS.get("DK_API_KEY")
 
+# Telegram bot needs these in os.environ BEFORE importing bot modules
+if SECRETS.get("TELEGRAM_BOT_TOKEN"):
+    os.environ["TELEGRAM_BOT_TOKEN"] = SECRETS["TELEGRAM_BOT_TOKEN"]
+
+# Import telegram router AFTER env vars are set
+from dev_signal_agent.telegram_bot.routes import router as telegram_router, configure_services
+
 # --- Configuration & Sessions ---
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Non-sensitive configuration still uses environment variables [cite: 207, 208]
@@ -27,8 +34,7 @@ def _get_memory_bank_uri():
     # NOTE: Reasoning Engines (Agent Engines) are only available in us-central1
     # Even if the Cloud Run service runs in europe-west1, memory must point to us-central1
     memory_location = os.environ.get("AGENT_ENGINE_LOCATION", "us-central1")
-    
-    # Re-init vertexai for the Agent Engine API call (requires us-central1)
+      # Re-init vertexai for the Agent Engine API call (requires us-central1)
     import vertexai as _vtx
     _vtx.init(project=PROJECT_ID, location=memory_location)
     
@@ -38,8 +44,9 @@ def _get_memory_bank_uri():
     uri = f"agentengine://{ae.resource_name}"
     print(f"DEBUG: Connecting to Memory Bank: {uri} (display_name={name}, location={memory_location})")
     
-    # Re-init vertexai back to the service region for model calls
-    _vtx.init(project=PROJECT_ID, location=SERVICE_LOC)
+    # Keep vertexai pointed at us-central1 (Agent Engine location).
+    # The Gemini model location is specified per-agent via MODEL_LOC in agent.py,
+    # so global vertexai location only matters for Agent Engine (sessions/memory).
     
     return uri, uri
 
@@ -58,6 +65,12 @@ app: FastAPI = get_fast_api_app(
     memory_service_uri=MEMORY_URI,
     otel_to_cloud=True,
 )
+
+# --- Telegram Bot Routes ---
+# Share Agent Engine URIs so Telegram uses the SAME persistent backend
+print(f"DEBUG: Configuring Telegram services with session_uri={SESSION_URI}, memory_uri={MEMORY_URI}")
+configure_services(session_uri=SESSION_URI, memory_uri=MEMORY_URI)
+app.include_router(telegram_router)
 
 if __name__ == "__main__":
     import uvicorn

@@ -98,6 +98,10 @@ trend_scanner = Agent(
 You are a technical trend research specialist. Identify high-engagement
 questions and discussions from the last 3 weeks.
 
+IMPORTANT: Today's date is dynamically determined at runtime. Only present
+posts with a publishedAt date within the last 21 days. If a post's date
+is older than 3 weeks, EXCLUDE it from results even if the API returns it.
+
 Source:
 - **daily.dev**: aggregates 400+ sources including Hacker News, Dev.to,
   Medium, Reddit, InfoQ, GitHub blogs, and many more.

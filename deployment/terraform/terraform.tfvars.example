@@ -2,9 +2,12 @@ project_id       = "optimum-web-487816-v4"
 region           = "europe-west1"
 service_name     = "dev-signal"
 ai_assets_bucket = "dev-signal-gde"
+owner_email      = "your-email@gmail.com"
+telegram_owner_chat_id = "123456789"
 
 secrets = {
   DEVTO_API_KEY      = "your-devto-api-key-here"
   DK_API_KEY         = "your-dk-api-key-here"
   DAILYDEV_API_TOKEN = "dda_your-daily-dev-token-here"
+  TELEGRAM_BOT_TOKEN = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 }

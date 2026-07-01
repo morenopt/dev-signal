@@ -85,10 +85,16 @@ resource "google_cloud_run_v2_service" "default" {
 
   template {
     service_account = google_service_account.agent_sa.email
-    
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 20
+    }
+
     containers {
       image = "us-docker.pkg.dev/cloudrun/container/hello" # Placeholder until first build
-       env {
+
+      env {
         name  = "GOOGLE_CLOUD_PROJECT"
         value = var.project_id
       }
@@ -112,6 +118,10 @@ resource "google_cloud_run_v2_service" "default" {
         name  = "AGENT_ENGINE_LOCATION"
         value = "us-central1"
       }
+      env {
+        name  = "TELEGRAM_OWNER_CHAT_ID"
+        value = var.telegram_owner_chat_id
+      }
 
       # NOTE: Secret injection as environment variables has been removed 
       # to align with Direct API access best practices.
@@ -121,14 +131,59 @@ resource "google_cloud_run_v2_service" "default" {
           cpu    = "1"
           memory = "2Gi"
         }
+        startup_cpu_boost = true
       }
     }
   }
-  
+
   traffic {
     type    = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST"
     percent = 100
   }
 
   depends_on = [google_project_service.services]
+}
+
+# 7. IAM: Private access — only the owner can invoke the service
+resource "google_cloud_run_v2_service_iam_member" "owner_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.default.name
+  role     = "roles/run.invoker"
+  member   = "user:${var.owner_email}"
+}
+
+# 8. Cloud Scheduler: Daily trend alert (triggers Telegram bot)
+resource "google_cloud_scheduler_job" "daily_trends" {
+  project     = var.project_id
+  region      = var.region
+  name        = "${var.service_name}-daily-trends"
+  description = "Triggers daily trend scan every morning at 8:00 CET"
+  schedule    = "0 8 * * *"
+  time_zone   = "Europe/Lisbon"
+
+  http_target {
+    http_method = "POST"
+    uri         = "${google_cloud_run_v2_service.default.uri}/telegram/cron/trends"
+    headers = {
+      "Content-Type" = "application/json"
+    }
+    body = base64encode("{\"trigger\": \"scheduled\"}")
+
+    oidc_token {
+      service_account_email = google_service_account.agent_sa.email
+      audience              = google_cloud_run_v2_service.default.uri
+    }
+  }
+
+  depends_on = [google_project_service.services]
+}
+
+# Grant Cloud Scheduler SA permission to invoke Cloud Run
+resource "google_cloud_run_v2_service_iam_member" "scheduler_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.default.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.agent_sa.email}"
 }

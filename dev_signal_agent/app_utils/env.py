@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 def _fetch_secrets(project_id: str):
     """Fetch secrets from Secret Manager and return them as a dictionary."""
-    secrets_to_fetch = ["DEVTO_API_KEY", "DK_API_KEY", "DAILYDEV_API_TOKEN"]
+    secrets_to_fetch = ["DEVTO_API_KEY", "DK_API_KEY", "DAILYDEV_API_TOKEN", "TELEGRAM_BOT_TOKEN"]
     fetched_secrets = {}
 
     # First, check local environment (for local development via .env)

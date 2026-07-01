@@ -14,6 +14,7 @@ generated at https://app.daily.dev/settings/api.
 
 import os
 import httpx
+from datetime import datetime, timedelta, timezone
 from fastmcp import FastMCP
 
 DAILYDEV_BASE = "https://api.daily.dev/public/v1"
@@ -56,8 +57,29 @@ def _format_post(p: dict) -> str:
     )
 
 
+def _filter_recent(posts: list[dict], max_age_days: int) -> list[dict]:
+    """Filter posts to only include those published within max_age_days."""
+    if max_age_days <= 0:
+        return posts
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    recent = []
+    for p in posts:
+        pub_str = p.get("publishedAt") or p.get("createdAt", "")
+        if not pub_str:
+            continue
+        try:
+            # daily.dev uses ISO 8601 format
+            pub_date = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
+            if pub_date >= cutoff:
+                recent.append(p)
+        except (ValueError, TypeError):
+            # If date parsing fails, include the post (benefit of doubt)
+            recent.append(p)
+    return recent
+
+
 @mcp.tool()
-async def get_trending_posts(tags: str = "", limit: int = 20) -> str:
+async def get_trending_posts(tags: str = "", limit: int = 20, max_age_days: int = 21) -> str:
     """
     Get trending/popular posts from daily.dev (aggregates 400+ sources
     including Hacker News, Dev.to, Medium, Reddit, and more).
@@ -66,8 +88,12 @@ async def get_trending_posts(tags: str = "", limit: int = 20) -> str:
         tags: Comma-separated tags to filter by (e.g. "ai,devops,kubernetes").
               Leave empty for general trending.
         limit: Number of posts to return (1-50, default 20).
+        max_age_days: Only include posts published within this many days (default 21 = 3 weeks).
+                      Set to 0 to disable date filtering.
     """
-    params: dict = {"limit": min(limit, 50)}
+    # Fetch extra posts to compensate for date filtering
+    fetch_limit = min(limit * 3, 50)
+    params: dict = {"limit": fetch_limit}
     if tags:
         params["tags"] = tags
 
@@ -81,22 +107,27 @@ async def get_trending_posts(tags: str = "", limit: int = 20) -> str:
         data = resp.json()
 
     posts = data.get("data", [])
+    posts = _filter_recent(posts, max_age_days)[:limit]
     results = [_format_post(p) for p in posts]
     return "\n".join(results) if results else "No trending posts found."
 
 
 @mcp.tool()
-async def get_most_discussed(period: int = 7, tag: str = "", limit: int = 20) -> str:
+async def get_most_discussed(period: int = 7, tag: str = "", limit: int = 20, max_age_days: int = 21) -> str:
     """
     Get the most discussed posts on daily.dev over a time period.
     Great for finding hot debates and community engagement.
 
     Args:
-        period: Number of days to look back (1-30, default 7).
+        period: Number of days to look back for discussion activity (1-30, default 7).
         tag: Optional tag to filter by (e.g. "ai", "python").
         limit: Number of posts to return (1-50, default 20).
+        max_age_days: Only include posts published within this many days (default 21 = 3 weeks).
+                      Set to 0 to disable date filtering.
     """
-    params: dict = {"limit": min(limit, 50), "period": min(period, 30)}
+    # Fetch extra posts to compensate for date filtering
+    fetch_limit = min(limit * 3, 50)
+    params: dict = {"limit": fetch_limit, "period": min(period, 30)}
     if tag:
         params["tag"] = tag
 
@@ -110,6 +141,7 @@ async def get_most_discussed(period: int = 7, tag: str = "", limit: int = 20) ->
         data = resp.json()
 
     posts = data.get("data", [])
+    posts = _filter_recent(posts, max_age_days)[:limit]
     results = [_format_post(p) for p in posts]
     return "\n".join(results) if results else "No discussed posts found."
 
